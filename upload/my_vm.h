@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
+#include <string.h>
 
 //Assume the address space is 32 bits, so the max memory size is 4GB
 //Page size is 4KB
@@ -73,6 +74,8 @@ void print_TLB_missrate();
 static unsigned int get_top_bits(unsigned int value,  int num_bits);
 static unsigned int get_mid_bits (unsigned int value, int num_middle_bits, int num_lower_bits);
 static unsigned int get_bottom_bits(unsigned int value,  int num_bits);
+static int get_bit_at_index(char *bitmap, int index);
+static void set_bit_at_index(char *bitmap, int index);
 void set_page_directory();
 
 #endif
