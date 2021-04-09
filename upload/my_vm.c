@@ -16,13 +16,16 @@ void set_physical_mem() {
     //HINT: Also calculate the number of physical and virtual pages and allocate
     //virtual and physical bitmaps and initialize them
     pageNum = MAX_MEMSIZE/PGSIZE;
-    printf("%d\n",pageNum);
+    //printf("%d\n",pageNum);
     physicalMemory = (page *)malloc(pageNum*(sizeof(page)));
     physicalBitmap = (char *) malloc(pageNum/8);
     virtualBitmap = (char *) malloc(pageNum/8);
     memset(physicalBitmap,0,4);
     memset(virtualBitmap,0,4);
-    printf("It actually got here!\n");
+    //printf("It actually got here!\n");
+    physicalMemory[0].pageEntries[0] = &physicalMemory[1];
+    set_bit_at_index(physicalBitmap,0,1);
+    set_bit_at_index(physicalBitmap,1,1);
 }
 
 
@@ -92,13 +95,13 @@ pte_t *translate(pde_t *pgdir, void *va) {
     midBits = get_mid_bits(*va,10,12);
     unsigned long actual = (physicalMemory[address].pageEntries[midBits]); */
 
-    unsigned int virtAdd = *(unsigned int *) va;
+    unsigned int virtAdd = (unsigned int) va;
     unsigned long topBits = get_top_bits(virtAdd,10);
     unsigned long address = *(pgdir + topBits);
     unsigned long midBits = get_mid_bits(virtAdd,10,12);
     pte_t *ret = (pte_t *)(address + midBits);
     unsigned long lowerBits = get_bottom_bits(virtAdd,10);
-    ret = (pte_t *)(*ret +  lowerBits);
+    *ret = (pte_t *)(*ret +  lowerBits);
     return ret;
     //If translation not successfull
     //return NULL; 
@@ -118,7 +121,7 @@ page_map(pde_t *pgdir, void *va, void *pa)
     /*HINT: Similar to translate(), find the page directory (1st level)
     and page table (2nd-level) indices. If no mapping exists, set the
     virtual to physical mapping */
-    unsigned int virtAdd = *(unsigned int *) va;
+    /*unsigned int virtAdd = *(unsigned int *) va;
     unsigned long topBits = get_top_bits(virtAdd,10);
     unsigned long address = *(pgdir + topBits);
     unsigned long midBits = get_mid_bits(virtAdd,10,12);
@@ -127,6 +130,19 @@ page_map(pde_t *pgdir, void *va, void *pa)
     if((pte_t *)(*ret + lowerBits) == NULL){
         ret = (pte_t *) (*ret + lowerBits);
         ret = (unsigned long *) pa;
+        return 1;
+    }
+    else{
+        return -1;
+    }
+    */
+    unsigned int virtAdd = *(unsigned int *) va;
+    unsigned long topBits = get_top_bits(virtAdd,10);
+    unsigned long *address = physicalMemory[0].pageEntries[topBits];
+    unsigned long midBits = get_mid_bits(virtAdd,10,12);
+    pte_t *ret = &address[midBits];
+    if(*ret == 0){
+        *ret = (unsigned long *) pa;
         return 1;
     }
     else{
@@ -147,7 +163,7 @@ void *get_next_avail(int num_pages) {
     //Calculates offset and virtual bits as pagesize may varry.
     int offsetBits = (int)(log10(PGSIZE)/log10(2));
     int virtualBits = (int)((32 -offsetBits)/2);
-    printf("\nOffset Bits: %d\n",offsetBits);
+    //printf("\nOffset Bits: %d\n",offsetBits);
     //Use virtual address bitmap to find the next free page
     for(int i = 0; i < pageNum; i++){
         
@@ -157,14 +173,14 @@ void *get_next_avail(int num_pages) {
             unsigned long pageDir = i/(PGSIZE/(sizeof(unsigned long)));//integer division helps us as it will give us the correct pageDir entry
             unsigned long pageTabEl = i % (PGSIZE/(sizeof(unsigned long)));//The mod gets us its element in that page table.
             space = true;
-            printf("\nVirtual Page Number: %d is free\n",i);
+            //printf("\nVirtual Page Number: %d is free\n",i);
             //va will have PageDir added to it and left shifted by virtualBits
             va = pageDir;
             va = va << virtualBits;
             va = va + pageTabEl;
             va = va << offsetBits;
             //Bit map is set to one at current index to represent it is now full.
-            set_bit_at_index(virtualBitmap, i);
+            set_bit_at_index(virtualBitmap, i,1);
             break;
             //Now we have to find a space in physical address for it.
         }
@@ -186,10 +202,10 @@ void *get_next_avail(int num_pages) {
                 //Now to figure out its location in memeory.
                 //This can be done by taking the i value and adding to the known virtual page offset.
                 pa = (pte_t *)&physicalMemory[(startOfPhysicalMemory + i)];
-                printf("\nPhysical Page Number: %d is free\n",i);
+                //printf("\nPhysical Page Number: %d is free\n",i);
                 //Bit map is set to one at current and previous indexes to represent it is now full.
                 for(int j = 0; j < num_pages; j++){
-                    set_bit_at_index(physicalBitmap, i-j);
+                    set_bit_at_index(physicalBitmap, i-j,1);
                 }
                 
                 break;
@@ -201,8 +217,8 @@ void *get_next_avail(int num_pages) {
     }
    if(space){
         page_map((pte_t *)&physicalMemory[0],&va,pa);
-        void * temp = &va;
-        return(temp);
+        //void * temp = &va;
+        return((void *)va);
    }
 }
 
@@ -222,7 +238,7 @@ void *a_malloc(unsigned int num_bytes) {
     * free pages are available, set the bitmaps and map a new page. Note, you will 
     * have to mark which physical pages are used. 
     */
-    printf("So it didn't get here?!\n");
+   // printf("So it didn't get here?!\n");
     if(physicalMemory == NULL){
         //sets physical memeory and creates page directory
         set_physical_mem();
@@ -235,7 +251,7 @@ void *a_malloc(unsigned int num_bytes) {
     else{
         numPages = (num_bytes/PGSIZE) + 1;
     }
-    printf("\nNeed to allocate %d page(s)", numPages);
+    //printf("\nNeed to allocate %d page(s)", numPages);
     return(get_next_avail(numPages));
 }
 
@@ -264,8 +280,11 @@ void put_value(void *va, void *val, int size) {
      * than one page. Therefore, you may have to find multiple pages using translate()
      * function.
      */
-
-
+    pte_t * address = translate((pte_t *)&physicalMemory[0],va);
+    *address = *(unsigned long *)val;
+    memset(address,*(int *) val, size);
+    //printf("Placed value: %ld\n",*address);
+    //memsize() USE IT
 
 
 }
@@ -278,8 +297,21 @@ void get_value(void *va, void *val, int size) {
     * "val" address. Assume you can access "val" directly by derefencing them.
     */
 
-
-
+    //Works in theory have to test with put.
+    /*pte_t * address = translate((pte_t *)&physicalMemory[0],va);
+    unsigned long ret = 0;
+    for(int i = 0; i < size; i++){
+        ret= ret + *(address + i);
+    }
+    *(unsigned long *)val = ret;
+    */
+    pte_t * address = translate((pte_t *)&physicalMemory[0],va);
+    //printf("Retriving: %ld\n", *address);
+    //*(unsigned long *) val = *address;
+    char * ret = 0;
+    for(int i =0; i < size; i++){
+        ret = ret + *(address + i);
+    }
 
 }
 
@@ -341,10 +373,10 @@ void set_page_directory(){
         counter++;
     }
     startOfPhysicalMemory = counter+1;
-    printf("No Segfault?!\n");
+    //printf("No Segfault?!\n");
 }
 
-static void set_bit_at_index(char *bitmap, int index)
+static void set_bit_at_index(char *bitmap, int index, int type)
 {
     // We first find the location in the bitmap array where we want to set a bit
     // Because each character can store 8 bits, using the "index", we find which 
@@ -357,19 +389,31 @@ static void set_bit_at_index(char *bitmap, int index)
     char bit = 1 << (index % 8);
 
     // just set the bit to 1. NOTE: If we want to free a bit (*bitmap_region &= ~bit;)
-    *region |= bit;
-   
+    if(type == 1){
+        *region |= bit;
+    }
+    else{
+        *region &= ~bit;
+    }
     return;
 }
+/*
 int main(){
-    unsigned long * out;
-    out = (unsigned long *)a_malloc(10);
-    printf("First Virtual Pointer: %ld\n", *out);
-    out = (unsigned long *)a_malloc(12289);
-    printf("Second Virtual Pointer: %ld\n", *out);
-    out = (unsigned long *)a_malloc(4098);
-    printf("Third Virtual Pointer: %ld\n", *out);
-
+    //unsigned long * out;
+   // out = (unsigned long *)a_malloc(10);
+   // printf("First Virtual Pointer: %ld\n", *out);
+   // out = (unsigned long *)a_malloc(12289);
+   // printf("Second Virtual Pointer: %ld\n", *out);
+   // out = (unsigned long *)a_malloc(4098);
+   // printf("Third Virtual Pointer: %ld\n", *out);
+    
+    int ARRAY_SIZE = 400;
+    void *a = a_malloc(ARRAY_SIZE);
+    int old_a = (int)a;
+    void *b = a_malloc(ARRAY_SIZE);
+    void *c = a_malloc(ARRAY_SIZE);
+    printf("Addresses of the allocations: %x, %x, %x\n", (int)a, (int)b, (int)c);
 }
+*/
 
 
