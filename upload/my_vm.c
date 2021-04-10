@@ -26,6 +26,7 @@ void set_physical_mem() {
     physicalMemory[0].pageEntries[0] = &physicalMemory[1];
     set_bit_at_index(physicalBitmap,0,1);
     set_bit_at_index(physicalBitmap,1,1);
+    set_bit_at_index(virtualBitmap,0,1);
 }
 
 
@@ -94,14 +95,15 @@ pte_t *translate(pde_t *pgdir, void *va) {
     unsigned long midBits = *va;
     midBits = get_mid_bits(*va,10,12);
     unsigned long actual = (physicalMemory[address].pageEntries[midBits]); */
-
+    int offsetBits = (int)(log10(PGSIZE)/log10(2));
+    int virtualBits = (int)((32 -offsetBits)/2);
     unsigned int virtAdd = (unsigned int) va;
-    unsigned long topBits = get_top_bits(virtAdd,10);
-    unsigned long address = *(pgdir + topBits);
-    unsigned long midBits = get_mid_bits(virtAdd,10,12);
-    pte_t *ret = (pte_t *)(address + midBits);
-    unsigned long lowerBits = get_bottom_bits(virtAdd,10);
-    *ret = (pte_t *)(*ret +  lowerBits);
+    unsigned long topBits = get_top_bits(virtAdd,virtualBits);
+    unsigned long *address = pgdir[topBits];
+    unsigned long midBits = get_mid_bits(virtAdd,virtualBits,offsetBits);
+    pte_t *ret = address[midBits];
+    unsigned long lowerBits = get_bottom_bits(virtAdd,offsetBits);
+    ret = ret+lowerBits;
     return ret;
     //If translation not successfull
     //return NULL; 
@@ -154,6 +156,7 @@ page_map(pde_t *pgdir, void *va, void *pa)
 /*Function that gets the next available page
 */
 void *get_next_avail(int num_pages) {
+    void * ret;
     int counter = 0;
     char * tempMap;
     tempMap = virtualBitmap;
@@ -165,60 +168,65 @@ void *get_next_avail(int num_pages) {
     int virtualBits = (int)((32 -offsetBits)/2);
     //printf("\nOffset Bits: %d\n",offsetBits);
     //Use virtual address bitmap to find the next free page
+    
     for(int i = 0; i < pageNum; i++){
         
         if(get_bit_at_index(tempMap, i)==0){
-            //we have found an open page table entry now to convert to a virtual address
-            //first lets determine which page directory it belongs too.
-            unsigned long pageDir = i/(PGSIZE/(sizeof(unsigned long)));//integer division helps us as it will give us the correct pageDir entry
-            unsigned long pageTabEl = i % (PGSIZE/(sizeof(unsigned long)));//The mod gets us its element in that page table.
-            space = true;
-            //printf("\nVirtual Page Number: %d is free\n",i);
-            //va will have PageDir added to it and left shifted by virtualBits
-            va = pageDir;
-            va = va << virtualBits;
-            va = va + pageTabEl;
-            va = va << offsetBits;
-            //Bit map is set to one at current index to represent it is now full.
-            set_bit_at_index(virtualBitmap, i,1);
-            break;
-            //Now we have to find a space in physical address for it.
+            counter++;
+            if(counter == num_pages){
+                //we have found an open page table entry now to convert to a virtual address
+                //first lets determine which page directory it belongs too.
+                unsigned long pageDir;//integer division helps us as it will give us the correct pageDir entry
+                unsigned long pageTabEl;//The mod gets us its element in that page table.
+                space = true;
+                //printf("\nVirtual Page Number: %d is free\n",i);
+                //va will have PageDir added to it and left shifted by virtualBits
+                int x =0;
+                for(int j = num_pages-1; j >= 0; j--){ 
+                    x = i-j;
+                    pageDir = x/(PGSIZE/(sizeof(unsigned long)));
+                    pageTabEl = x % (PGSIZE/(sizeof(unsigned long)));
+                    for(int h = 0; h < pageNum; h++){
+                        tempMap = physicalBitmap;
+                        if(get_bit_at_index(tempMap, h)==0){            
+                            //Now to figure out its location in memeory.
+                            //This can be done by taking the i value and adding to the known virtual page offset.
+                            pa = (pte_t *)&physicalMemory[h];
+                            set_bit_at_index(physicalBitmap,h,1);
+                            //printf("\nPhysical Page Number: %d is free\n",i);
+                            //Bit map is set to one at current and previous indexes to represent it is now full.
+                            break;
+                        }
+                    }
+                    va = pageDir;
+                    va = va << virtualBits;
+                    va = va + pageTabEl;
+                    va = va << offsetBits;
+                    if(j == num_pages-1){
+                        ret = va;
+                    }
+                    //Bit map is set to one at current index to represent it is now full.
+                    set_bit_at_index(virtualBitmap, i,1);
+                    page_map((unsigned long *)&physicalMemory[0],(unsigned long *)&va,pa);
+
+                //Now we have to find a space in physical address for it.
+                }
+                break;
+        }
+        else{
+           counter = 0; 
+        }
         }
     }
     if(!space){
         //No space remains. Return null
         return NULL;
     }
-    space = false;
-    //Now to find a continguous space in physical memeory
-    for(int i = 0; i < pageNum; i++){
-        tempMap = physicalBitmap;
-        if(get_bit_at_index(tempMap, i)==0){
-            counter ++;
-
-            if(counter == num_pages){
-                //we have found a section of contingous pages large enough to store the data.
-                space = true;
-                //Now to figure out its location in memeory.
-                //This can be done by taking the i value and adding to the known virtual page offset.
-                pa = (pte_t *)&physicalMemory[(startOfPhysicalMemory + i)];
-                //printf("\nPhysical Page Number: %d is free\n",i);
-                //Bit map is set to one at current and previous indexes to represent it is now full.
-                for(int j = 0; j < num_pages; j++){
-                    set_bit_at_index(physicalBitmap, i-j,1);
-                }
-                
-                break;
-            }
-        }
-        else{//Not big enough
-            counter = 0;
-        }
-    }
-   if(space){
+    //Now to find a continguous space in physical memeory   
+   else{
         page_map((pte_t *)&physicalMemory[0],&va,pa);
         //void * temp = &va;
-        return((void *)va);
+        return(ret);
    }
 }
 
@@ -242,7 +250,7 @@ void *a_malloc(unsigned int num_bytes) {
     if(physicalMemory == NULL){
         //sets physical memeory and creates page directory
         set_physical_mem();
-        set_page_directory();
+        //set_page_directory();
     }
     int numPages;
     if (num_bytes % PGSIZE == 0){
@@ -265,7 +273,35 @@ void a_free(void *va, int size) {
      *
      * Part 2: Also, remove the translation from the TLB
      */
-     
+    int offsetBits = (int)(log10(PGSIZE)/log10(2));
+    int virtualBits = (int)((32 -offsetBits)/2);
+    int num_pages;
+    if(size == PGSIZE){
+        num_pages = size/PGSIZE;
+    }
+    else{
+        num_pages = size/PGSIZE;
+        num_pages++;
+    }
+    pte_t * phys;
+    int index=0;
+    int midBits=0;
+    int topBits =0;
+    unsigned long *address;
+    for(int i = 0; i < num_pages; i++){
+        //sets the appropriate physical page to 0
+        phys = translate((pte_t *)&physicalMemory[0],va);
+        index = ((*(unsigned long *) phys)/PGSIZE);
+        set_bit_at_index(physicalBitmap,index,0);
+        //finds the address of the virtual page to set it to point to 0
+        midBits = get_mid_bits(va,virtualBits,offsetBits);
+        topBits = get_top_bits(va,virtualBits);
+        address = physicalMemory[0].pageEntries[topBits];
+        pte_t *ret = &address[midBits];
+        *ret = 0;
+        set_bit_at_index(virtualBitmap,midBits,0);
+
+    }
     
 }
 
@@ -281,8 +317,9 @@ void put_value(void *va, void *val, int size) {
      * function.
      */
     pte_t * address = translate((pte_t *)&physicalMemory[0],va);
-    *address = *(unsigned long *)val;
-    memset(address,*(int *) val, size);
+    //*address = *(unsigned long *)val;
+    //memcpy dest sourse size.
+    memcpy((void *)address, val, size);
     //printf("Placed value: %ld\n",*address);
     //memsize() USE IT
 
@@ -308,11 +345,11 @@ void get_value(void *va, void *val, int size) {
     pte_t * address = translate((pte_t *)&physicalMemory[0],va);
     //printf("Retriving: %ld\n", *address);
     //*(unsigned long *) val = *address;
-    char * ret = 0;
-    for(int i =0; i < size; i++){
-        ret = ret + *(address + i);
-    }
-
+    //char * ret = 0;
+    //for(int i =0; i < size; i++){
+     //   ret = ret + *(address + i);
+    //}
+    memcpy(val, address, size);
 }
 
 
@@ -333,19 +370,21 @@ void mat_mult(void *mat1, void *mat2, int size, void *answer) {
 
        
 }
-static unsigned int get_top_bits(unsigned int value,  int num_bits)
+unsigned int get_top_bits(unsigned int value,  int num_bits)
 {
     int num_bits_to_prune = 32 - num_bits;
     return (value >> num_bits_to_prune);
 }
-static unsigned int get_bottom_bits(unsigned int value,  int num_bits)
+unsigned int get_bottom_bits(unsigned int value,  int num_bits)
 {
     int num_bits_to_prune = 32 - num_bits;
-    unsigned long ret = (value << num_bits);
-    ret = (ret >> num_bits);
+    unsigned long ret = (value << num_bits_to_prune);
+    ret = (ret >> num_bits_to_prune);
+//    twelve_bits = 0xfff;
+//    get_bottom_bits = value & twelve_bits;
     return ret;
 }
-static unsigned int get_mid_bits (unsigned int value, int num_middle_bits, int num_lower_bits)
+unsigned int get_mid_bits (unsigned int value, int num_middle_bits, int num_lower_bits)
 {
    unsigned int mid_bits_value = 0;   
    value = value >> num_lower_bits; 
@@ -354,7 +393,7 @@ static unsigned int get_mid_bits (unsigned int value, int num_middle_bits, int n
    mid_bits_value =  value &  outer_bits_mask;
   return mid_bits_value;
 }
-static int get_bit_at_index(char *bitmap, int index)
+int get_bit_at_index(char *bitmap, int index)
 {
     //Same as example 3, get to the location in the character bitmap array
     char *region = ((char *) bitmap) + (index / 8);
@@ -376,7 +415,7 @@ void set_page_directory(){
     //printf("No Segfault?!\n");
 }
 
-static void set_bit_at_index(char *bitmap, int index, int type)
+void set_bit_at_index(char *bitmap, int index, int type)
 {
     // We first find the location in the bitmap array where we want to set a bit
     // Because each character can store 8 bits, using the "index", we find which 
@@ -395,7 +434,6 @@ static void set_bit_at_index(char *bitmap, int index, int type)
     else{
         *region &= ~bit;
     }
-    return;
 }
 /*
 int main(){
