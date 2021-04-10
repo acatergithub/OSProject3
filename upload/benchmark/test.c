@@ -7,7 +7,6 @@
 #define ARRAY_SIZE 400
 
 int main() {
-
     printf("Allocating three arrays of %d bytes\n", ARRAY_SIZE);
 
     void *a = a_malloc(ARRAY_SIZE);
@@ -47,8 +46,6 @@ int main() {
 
     printf("Performing matrix multiplication with itself!\n");
     mat_mult(a, b, SIZE, c);
-
-
     for (i = 0; i < SIZE; i++) {
         for (j = 0; j < SIZE; j++) {
             address_c = (unsigned int)c + ((i * SIZE * sizeof(int))) + (j * sizeof(int));

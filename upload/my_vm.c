@@ -140,7 +140,15 @@ page_map(pde_t *pgdir, void *va, void *pa)
     */
     unsigned int virtAdd = *(unsigned int *) va;
     unsigned long topBits = get_top_bits(virtAdd,10);
+    if(physicalMemory[0].pageEntries[topBits]==0){
+        for(int i = 0; i < pageNum; i ++){
+            if(get_bit_at_index(physicalBitmap,i)==0){
+                physicalMemory[0].pageEntries[topBits] = &physicalMemory[i];
+            }
+        }
+    }
     unsigned long *address = physicalMemory[0].pageEntries[topBits];
+    
     unsigned long midBits = get_mid_bits(virtAdd,10,12);
     pte_t *ret = &address[midBits];
     if(*ret == 0){
