@@ -420,6 +420,7 @@ void get_value(void *va, void *val, int size) {
     *(unsigned long *)val = ret;
     */
     int num_pages=0;
+    int tempSize = size;
     void * virtAdd = va;
     if(size == PGSIZE){
         num_pages = size/PGSIZE;
@@ -431,8 +432,14 @@ void get_value(void *va, void *val, int size) {
     if(num_pages > 1){
         for(int i = 0; i < num_pages; i++){
             pte_t * address = translate((pte_t *)&physicalMemory[0],virtAdd);
-            memcpy(val, address, size);
+            if(tempSize > PGSIZE){
+                memcpy(val, address, PGSIZE);
+            }
+            else{
+                memcpy(val, address, tempSize);
+            }
             virtAdd = virtAdd + (sizeof(unsigned long));
+            tempSize = tempSize - PGSIZE;
         }
     }
     else{
