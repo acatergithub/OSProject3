@@ -4,8 +4,8 @@
 #include "../my_vm.h"
 
 #define SIZE 5
-#define ARRAY_SIZE 400
-
+//#define ARRAY_SIZE 400
+#define ARRAY_SIZE 5000
 int main() {
     printf("Allocating three arrays of %d bytes\n", ARRAY_SIZE);
 
@@ -13,7 +13,7 @@ int main() {
     int old_a = (int)a;
     void *b = a_malloc(ARRAY_SIZE);
     void *c = a_malloc(ARRAY_SIZE);
-    int x = 1;
+    int x = 2;
     int y, z;
     int i =0, j=0;
     int address_a = 0, address_b = 0;
@@ -66,5 +66,6 @@ int main() {
     else
         printf("free function does not work\n");
 
+    print_TLB_missrate();
     return 0;
 }

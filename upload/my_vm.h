@@ -28,13 +28,13 @@ typedef unsigned long pde_t;
 #define TLB_ENTRIES 512
 
 //Structure to represents TLB
-struct tlb {
+typedef struct tlb {
     /*Assume your TLB is a direct mapped TLB with number of entries as TLB_ENTRIES
     * Think about the size of each TLB entry that performs virtual to physical
     * address translation.
     */
-
-};
+    unsigned long entries [TLB_ENTRIES][2];
+}tlb;
 struct tlb tlb_store;
 
 typedef struct page{
@@ -76,6 +76,8 @@ static unsigned int get_mid_bits (unsigned int value, int num_middle_bits, int n
 static unsigned int get_bottom_bits(unsigned int value,  int num_bits);
 static int get_bit_at_index(char *bitmap, int index);
 static void set_bit_at_index(char *bitmap, int index,int type);
+unsigned int add_to_address (unsigned int value, int num_lower_bits);
+void checkLock();
 void set_page_directory();
 
 #endif

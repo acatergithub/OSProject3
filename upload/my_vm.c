@@ -4,6 +4,11 @@ int pageNum;
 char *physicalBitmap; 
 char *virtualBitmap;
 int startOfPhysicalMemory;
+tlb *tlbTable;
+int oldestTlb;
+long tlbChecks;
+long tlbMisses;
+static int lock;
 /*
 Function responsible for allocating and setting your physical memory 
 */
@@ -20,6 +25,10 @@ void set_physical_mem() {
     physicalMemory = (page *)malloc(pageNum*(sizeof(page)));
     physicalBitmap = (char *) malloc(pageNum/8);
     virtualBitmap = (char *) malloc(pageNum/8);
+    tlbTable = (tlb *)malloc(sizeof(tlb));
+    tlbChecks = 0;
+    tlbMisses = 0;
+    oldestTlb = 0;
     memset(physicalBitmap,0,4);
     memset(virtualBitmap,0,4);
     //printf("It actually got here!\n");
@@ -39,7 +48,19 @@ add_TLB(void *va, void *pa)
 {
 
     /*Part 2 HINT: Add a virtual to physical page translation to the TLB */
-
+    for(int i = 0; i < TLB_ENTRIES; i++){
+        if(tlbTable->entries[i][0]==0){
+            tlbTable->entries[i][0] = (unsigned long) va;
+            tlbTable->entries[i][1] = (unsigned long) pa;
+            return 1;
+        }
+    }
+    tlbTable->entries[oldestTlb][0] = (unsigned long) va;
+    tlbTable->entries[oldestTlb][1] = (unsigned long) pa;
+    oldestTlb++;
+    if(oldestTlb == TLB_ENTRIES){
+        oldestTlb = 0;
+    }
     return -1;
 }
 
@@ -51,9 +72,16 @@ add_TLB(void *va, void *pa)
  */
 pte_t *
 check_TLB(void *va) {
-
+    tlbChecks++;
     /* Part 2: TLB lookup code here */
-
+    for(int i = 0; i < TLB_ENTRIES; i++){
+        if(tlbTable->entries[i][0]==(unsigned long)va){
+            return tlbTable->entries[i][1];
+        }
+    }
+    //tlb missed returning 0
+    tlbMisses++;
+    return 0;
 }
 
 
@@ -67,7 +95,7 @@ print_TLB_missrate()
     double miss_rate = 0;	
 
     /*Part 2 Code here to calculate and print the TLB miss rate*/
-
+    miss_rate = tlbMisses/tlbChecks;
 
 
 
@@ -95,6 +123,12 @@ pte_t *translate(pde_t *pgdir, void *va) {
     unsigned long midBits = *va;
     midBits = get_mid_bits(*va,10,12);
     unsigned long actual = (physicalMemory[address].pageEntries[midBits]); */
+
+    //checks the TLB to see if translation exists
+    pte_t * checkTlb = check_TLB(va);
+    if(checkTlb != 0){
+        return(checkTlb);
+    }
     int offsetBits = (int)(log10(PGSIZE)/log10(2));
     int virtualBits = (int)((32 -offsetBits)/2);
     unsigned int virtAdd = (unsigned int) va;
@@ -104,6 +138,10 @@ pte_t *translate(pde_t *pgdir, void *va) {
     pte_t *ret = address[midBits];
     unsigned long lowerBits = get_bottom_bits(virtAdd,offsetBits);
     ret = ret+lowerBits;
+
+    //adds the newly translated address to TLB
+    add_TLB(va,ret);
+    
     return ret;
     //If translation not successfull
     //return NULL; 
@@ -153,6 +191,7 @@ page_map(pde_t *pgdir, void *va, void *pa)
     pte_t *ret = &address[midBits];
     if(*ret == 0){
         *ret = (unsigned long *) pa;
+        add_TLB(va,pa);
         return 1;
     }
     else{
@@ -221,19 +260,21 @@ void *get_next_avail(int num_pages) {
                 }
                 break;
         }
+        }
         else{
            counter = 0; 
-        }
         }
     }
     if(!space){
         //No space remains. Return null
+        lock = 0;
         return NULL;
     }
     //Now to find a continguous space in physical memeory   
    else{
         page_map((pte_t *)&physicalMemory[0],&va,pa);
         //void * temp = &va;
+        lock = 0;
         return(ret);
    }
 }
@@ -255,6 +296,8 @@ void *a_malloc(unsigned int num_bytes) {
     * have to mark which physical pages are used. 
     */
    // printf("So it didn't get here?!\n");
+    checkLock();
+    lock = 1;
     if(physicalMemory == NULL){
         //sets physical memeory and creates page directory
         set_physical_mem();
@@ -268,6 +311,7 @@ void *a_malloc(unsigned int num_bytes) {
         numPages = (num_bytes/PGSIZE) + 1;
     }
     //printf("\nNeed to allocate %d page(s)", numPages);
+    
     return(get_next_avail(numPages));
 }
 
@@ -291,6 +335,7 @@ void a_free(void *va, int size) {
         num_pages = size/PGSIZE;
         num_pages++;
     }
+    unsigned long virtAdd = va;
     pte_t * phys;
     int index=0;
     int midBits=0;
@@ -298,17 +343,17 @@ void a_free(void *va, int size) {
     unsigned long *address;
     for(int i = 0; i < num_pages; i++){
         //sets the appropriate physical page to 0
-        phys = translate((pte_t *)&physicalMemory[0],va);
-        index = ((*(unsigned long *) phys)/PGSIZE);
+        phys = translate((pte_t *)&physicalMemory[0],virtAdd);
+        index = ((((unsigned long)phys-(unsigned long)&physicalMemory[0]))/PGSIZE);
         set_bit_at_index(physicalBitmap,index,0);
         //finds the address of the virtual page to set it to point to 0
-        midBits = get_mid_bits(va,virtualBits,offsetBits);
-        topBits = get_top_bits(va,virtualBits);
+        midBits = get_mid_bits(virtAdd,virtualBits,offsetBits);
+        topBits = get_top_bits(virtAdd,virtualBits);
         address = physicalMemory[0].pageEntries[topBits];
         pte_t *ret = &address[midBits];
         *ret = 0;
         set_bit_at_index(virtualBitmap,midBits,0);
-
+        virtAdd = add_to_address(virtAdd,offsetBits);
     }
     
 }
@@ -324,10 +369,32 @@ void put_value(void *va, void *val, int size) {
      * than one page. Therefore, you may have to find multiple pages using translate()
      * function.
      */
-    pte_t * address = translate((pte_t *)&physicalMemory[0],va);
+    int num_pages=0;
+    void * virtAdd = va;
+    if(size == PGSIZE){
+        num_pages = size/PGSIZE;
+    }
+    else{
+        num_pages = size/PGSIZE;
+        num_pages++;
+    }
+    if(num_pages > 1){
+        for(int i = 0; i < num_pages; i++){
+            pte_t * address = translate((pte_t *)&physicalMemory[0],virtAdd);
+            memcpy((void *)address, val, size);
+            virtAdd = virtAdd + (sizeof(unsigned long));
+        }
+    }
+    else{
+        pte_t * address = translate((pte_t *)&physicalMemory[0],va);
+        memcpy((void *)address, val, size);
+    }
+    
+
+
     //*address = *(unsigned long *)val;
     //memcpy dest sourse size.
-    memcpy((void *)address, val, size);
+   
     //printf("Placed value: %ld\n",*address);
     //memsize() USE IT
 
@@ -350,14 +417,26 @@ void get_value(void *va, void *val, int size) {
     }
     *(unsigned long *)val = ret;
     */
-    pte_t * address = translate((pte_t *)&physicalMemory[0],va);
-    //printf("Retriving: %ld\n", *address);
-    //*(unsigned long *) val = *address;
-    //char * ret = 0;
-    //for(int i =0; i < size; i++){
-     //   ret = ret + *(address + i);
-    //}
-    memcpy(val, address, size);
+    int num_pages=0;
+    void * virtAdd = va;
+    if(size == PGSIZE){
+        num_pages = size/PGSIZE;
+    }
+    else{
+        num_pages = size/PGSIZE;
+        num_pages++;
+    }
+    if(num_pages > 1){
+        for(int i = 0; i < num_pages; i++){
+            pte_t * address = translate((pte_t *)&physicalMemory[0],virtAdd);
+            memcpy(val, address, size);
+            virtAdd = virtAdd + (sizeof(unsigned long));
+        }
+    }
+    else{
+        pte_t * address = translate((pte_t *)&physicalMemory[0],virtAdd);
+        memcpy(val, address, size);
+    }
 }
 
 
@@ -375,7 +454,24 @@ void mat_mult(void *mat1, void *mat2, int size, void *answer) {
      * getting the values from two matrices, you will perform multiplication and 
      * store the result to the "answer array"
      */
-
+    int address1 = 0;
+    int address2 = 0;
+    int addressAns = 0;
+    int val1 = 0;
+    int val2 = 0;
+    int total = 0;
+    int ans = 0;
+    for(int i =0; i <size; i++){
+        for(int j = 0; j < size; j++){
+            address1 = (unsigned int)mat1 + ((i * size * sizeof(int))) + (j * sizeof(int));
+            address2 = (unsigned int)mat2 + ((i * size * sizeof(int))) + (j * sizeof(int));
+            addressAns = (unsigned int)answer + ((i * size * sizeof(int))) + (j * sizeof(int));
+            get_value((void *)mat1, &val1, sizeof(int));
+            get_value((void *)mat2, &val2, sizeof(int));
+            ans = val1 * val2;
+            put_value(addressAns, &ans, sizeof(int));
+        }
+    }
        
 }
 unsigned int get_top_bits(unsigned int value,  int num_bits)
@@ -442,6 +538,17 @@ void set_bit_at_index(char *bitmap, int index, int type)
     else{
         *region &= ~bit;
     }
+}
+unsigned int add_to_address (unsigned int value, int num_lower_bits)
+{
+    unsigned int mid_bits_value = 0;   
+    value = value >> num_lower_bits; 
+    value++;
+    value = value << num_lower_bits;
+    return value;
+}
+void checkLock(){
+    while(lock == 1);
 }
 /*
 int main(){
