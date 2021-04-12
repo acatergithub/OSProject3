@@ -463,14 +463,22 @@ void mat_mult(void *mat1, void *mat2, int size, void *answer) {
     int ans = 0;
     for(int i =0; i <size; i++){
         for(int j = 0; j < size; j++){
-            address1 = (unsigned int)mat1 + ((i * size * sizeof(int))) + (j * sizeof(int));
-            address2 = (unsigned int)mat2 + ((i * size * sizeof(int))) + (j * sizeof(int));
+            for(int k = 0; k < size; k++){
+                address1 = (unsigned int)mat1 + ((i * size * sizeof(int))) + (k * sizeof(int));
+                address2 = (unsigned int)mat2 + ((k * size * sizeof(int))) + (j * sizeof(int));
+                get_value((void *)mat1, &val1, sizeof(int));
+                total = val1;
+                get_value((void *)mat2, &val2, sizeof(int));
+                total  = total * val2;
+                ans = ans + total;
+            }
+            
             addressAns = (unsigned int)answer + ((i * size * sizeof(int))) + (j * sizeof(int));
-            get_value((void *)mat1, &val1, sizeof(int));
-            get_value((void *)mat2, &val2, sizeof(int));
-            ans = val1 * val2;
             put_value(addressAns, &ans, sizeof(int));
+            ans = 0;
+            total = 0;    
         }
+        
     }
        
 }
