@@ -6,9 +6,12 @@ char *virtualBitmap;
 int startOfPhysicalMemory;
 tlb *tlbTable;
 int oldestTlb;
-long tlbChecks;
-long tlbMisses;
-static int lock;
+static long tlbChecks;
+static long tlbMisses;
+pthread_mutex_t lock;
+int offsetBits;
+int directoryBits;
+int virtualBits;
 /*
 Function responsible for allocating and setting your physical memory 
 */
@@ -17,7 +20,7 @@ void set_physical_mem() {
     //Allocate physical memory using mmap or malloc; this is the total size of
     //your memory you are simulating
 
-    
+    //amat 
     //HINT: Also calculate the number of physical and virtual pages and allocate
     //virtual and physical bitmaps and initialize them
     pageNum = MAX_MEMSIZE/PGSIZE;
@@ -29,6 +32,12 @@ void set_physical_mem() {
     tlbChecks = 0;
     tlbMisses = 0;
     oldestTlb = 0;
+    offsetBits = (int)(log10(PGSIZE)/log10(2));
+    virtualBits = (int)((32 -offsetBits)/2);
+    directoryBits = (int)((32 -offsetBits)/2);
+    if((int)(32 -offsetBits)%2 == 1){
+        directoryBits++;
+    }
     memset(physicalBitmap,0,4);
     memset(virtualBitmap,0,4);
     //printf("It actually got here!\n");
@@ -95,7 +104,7 @@ print_TLB_missrate()
     double miss_rate = 0;	
 
     /*Part 2 Code here to calculate and print the TLB miss rate*/
-    miss_rate = tlbMisses/tlbChecks;
+    miss_rate = (double)tlbMisses/(double)tlbChecks;
 
 
 
@@ -129,10 +138,8 @@ pte_t *translate(pde_t *pgdir, void *va) {
     if(checkTlb != 0){
         return(checkTlb);
     }
-    int offsetBits = (int)(log10(PGSIZE)/log10(2));
-    int virtualBits = (int)((32 -offsetBits)/2);
     unsigned int virtAdd = (unsigned int) va;
-    unsigned long topBits = get_top_bits(virtAdd,virtualBits);
+    unsigned long topBits = get_top_bits(virtAdd,directoryBits);
     unsigned long *address = pgdir[topBits];
     unsigned long midBits = get_mid_bits(virtAdd,virtualBits,offsetBits);
     pte_t *ret = address[midBits];
@@ -211,8 +218,6 @@ void *get_next_avail(int num_pages) {
     unsigned long * pa = 0;
     unsigned long  va = 0;
     //Calculates offset and virtual bits as pagesize may varry.
-    int offsetBits = (int)(log10(PGSIZE)/log10(2));
-    int virtualBits = (int)((32 -offsetBits)/2);
     //printf("\nOffset Bits: %d\n",offsetBits);
     //Use virtual address bitmap to find the next free page
     
@@ -267,14 +272,14 @@ void *get_next_avail(int num_pages) {
     }
     if(!space){
         //No space remains. Return null
-        lock = 0;
+        pthread_mutex_unlock(&lock);
         return NULL;
     }
     //Now to find a continguous space in physical memeory   
    else{
         page_map((pte_t *)&physicalMemory[0],&va,pa);
         //void * temp = &va;
-        lock = 0;
+        pthread_mutex_unlock(&lock);
         return(ret);
    }
 }
@@ -296,8 +301,7 @@ void *a_malloc(unsigned int num_bytes) {
     * have to mark which physical pages are used. 
     */
    // printf("So it didn't get here?!\n");
-    checkLock();
-    lock = 1;
+   pthread_mutex_lock(&lock);
     if(physicalMemory == NULL){
         //sets physical memeory and creates page directory
         set_physical_mem();
@@ -325,8 +329,6 @@ void a_free(void *va, int size) {
      *
      * Part 2: Also, remove the translation from the TLB
      */
-    int offsetBits = (int)(log10(PGSIZE)/log10(2));
-    int virtualBits = (int)((32 -offsetBits)/2);
     int num_pages;
     if(size == PGSIZE){
         num_pages = size/PGSIZE;
@@ -348,7 +350,7 @@ void a_free(void *va, int size) {
         set_bit_at_index(physicalBitmap,index,0);
         //finds the address of the virtual page to set it to point to 0
         midBits = get_mid_bits(virtAdd,virtualBits,offsetBits);
-        topBits = get_top_bits(virtAdd,virtualBits);
+        topBits = get_top_bits(virtAdd,directoryBits);
         address = physicalMemory[0].pageEntries[topBits];
         pte_t *ret = &address[midBits];
         *ret = 0;
@@ -554,9 +556,6 @@ unsigned int add_to_address (unsigned int value, int num_lower_bits)
     value++;
     value = value << num_lower_bits;
     return value;
-}
-void checkLock(){
-    while(lock == 1);
 }
 /*
 int main(){

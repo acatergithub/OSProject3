@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
+#include <pthread.h>
 
 //Assume the address space is 32 bits, so the max memory size is 4GB
 //Page size is 4KB
@@ -77,7 +78,6 @@ static unsigned int get_bottom_bits(unsigned int value,  int num_bits);
 static int get_bit_at_index(char *bitmap, int index);
 static void set_bit_at_index(char *bitmap, int index,int type);
 unsigned int add_to_address (unsigned int value, int num_lower_bits);
-void checkLock();
 void set_page_directory();
 
 #endif

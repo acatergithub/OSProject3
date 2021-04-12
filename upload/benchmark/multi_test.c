@@ -127,4 +127,7 @@ int main() {
     if (!flag) {
         printf("Some Problem with free!\n");
     }
+
+    printf("Getting TLB Miss rate");
+    print_TLB_missrate();
 }
